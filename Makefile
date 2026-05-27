@@ -5,7 +5,10 @@ LINKERD_BIN ?= $(LINKERD_INSTALL_ROOT)/bin/linkerd
 GRPC_REPRO_IMAGE ?= linkerd-grpc-header-repro:local
 TEST_TIMEOUT_SECONDS ?= 90
 
-.PHONY: setup test clean clean-repro clean-cluster
+PROXY_IMAGE ?= localhost/linkerd/proxy:fix-15199-local
+PROXY_HTTP2_MAX_HEADER_LIST_SIZE ?= 131072
+
+.PHONY: setup test deploy-proxy clean clean-repro clean-cluster
 
 setup:
 	K3D_CLUSTER=$(K3D_CLUSTER) \
@@ -18,7 +21,16 @@ test:
 	LINKERD_BIN=$(LINKERD_BIN) \
 	GRPC_REPRO_IMAGE=$(GRPC_REPRO_IMAGE) \
 	TEST_TIMEOUT_SECONDS=$(TEST_TIMEOUT_SECONDS) \
+	PROXY_VERSION=$(PROXY_VERSION) \
 	./scripts/test-variations.sh
+
+deploy-proxy:
+	K3D_CLUSTER=$(K3D_CLUSTER) \
+	LINKERD_BIN=$(LINKERD_BIN) \
+	PROXY_IMAGE=$(PROXY_IMAGE) \
+	PROXY_VERSION=$(PROXY_VERSION) \
+	PROXY_HTTP2_MAX_HEADER_LIST_SIZE=$(PROXY_HTTP2_MAX_HEADER_LIST_SIZE) \
+	./scripts/deploy-custom-proxy.sh
 
 clean-repro:
 	kubectl config use-context k3d-$(K3D_CLUSTER)
