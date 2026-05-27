@@ -32,7 +32,7 @@ linkerd_version() {
   fi
 
   kubectl -n linkerd get deploy linkerd-destination \
-    -o jsonpath='Server proxy image: {.spec.template.spec.initContainers[*].image}{"\n"}'
+    -o jsonpath='Server proxy image: {.spec.template.spec.initContainers[?(@.name=="linkerd-proxy")].image}{"\n"}'
 }
 
 install_http_variation() {
@@ -49,6 +49,11 @@ install_http_variation() {
     --set "server.largeHeaderBytes=${header_bytes}"
     --wait
   )
+
+  if [[ -n "${PROXY_VERSION:-}" ]]; then
+    args+=(--set-string "meshedClient.podAnnotations.config\.linkerd\.io/proxy-version=${PROXY_VERSION}")
+    args+=(--set-string "server.podAnnotations.config\.linkerd\.io/proxy-version=${PROXY_VERSION}")
+  fi
 
   if [[ "${opaque}" == "yes" ]]; then
     args+=(--set-string 'server.podAnnotations.config\.linkerd\.io/opaque-ports=8080')
@@ -71,6 +76,8 @@ curl_from_client() {
   local deploy="$2"
   local url="$3"
 
+  # The remote shell script is single-quoted so it runs inside the curl pod.
+  # shellcheck disable=SC2016
   kubectl -n "${namespace}" exec "deploy/${deploy}" -c curl -- sh -ceu '
     url="$1"
     rm -f /tmp/repro-body /tmp/repro-headers
@@ -219,9 +226,13 @@ render_grpc_server() {
   local trailer_bytes="$3"
   local opaque="$4"
   local opaque_annotation=""
+  local proxy_version_annotation=""
 
   if [[ "${opaque}" == "yes" ]]; then
     opaque_annotation='        config.linkerd.io/opaque-ports: "9090"'
+  fi
+  if [[ -n "${PROXY_VERSION:-}" ]]; then
+    proxy_version_annotation="        config.linkerd.io/proxy-version: \"${PROXY_VERSION}\""
   fi
 
   cat <<YAML
@@ -240,6 +251,7 @@ spec:
     metadata:
       annotations:
         linkerd.io/inject: enabled
+${proxy_version_annotation}
 ${opaque_annotation}
       labels:
         app.kubernetes.io/instance: ${release}
@@ -264,6 +276,11 @@ render_grpc_client() {
   local release="$2"
   local client_kind="$3"
   local inject="$4"
+  local proxy_version_annotation=""
+
+  if [[ "${inject}" == "enabled" && -n "${PROXY_VERSION:-}" ]]; then
+    proxy_version_annotation="        config.linkerd.io/proxy-version: \"${PROXY_VERSION}\""
+  fi
 
   cat <<YAML
 apiVersion: apps/v1
@@ -281,6 +298,7 @@ spec:
     metadata:
       annotations:
         linkerd.io/inject: ${inject}
+${proxy_version_annotation}
       labels:
         app.kubernetes.io/instance: ${release}
         app.kubernetes.io/component: grpc-${client_kind}-client
@@ -417,13 +435,13 @@ print_report() {
   echo
   print_http_report
   echo
-  echo "Expected HTTP signal: 22k normal fails only in meshed /large; 12k and opaque 22k pass."
+  echo "Expected HTTP signal: 12k, 22k, and opaque 22k all pass when the proxy fix is active."
   echo
   echo "## gRPC response trailers"
   echo
   print_grpc_report
   echo
-  echo "Expected gRPC signal: 22k trailers return Internal with missing trailers when either Linkerd side parses HTTP/2; opaque 22k proves the unmeshed client receives the original Unauthenticated status and trailers."
+  echo "Expected gRPC signal: 8k and 22k meshed clients receive Unauthenticated status and full trailers; opaque 22k still passes for the unmeshed control."
 }
 
 main() {
@@ -432,7 +450,7 @@ main() {
   run_http_variation "12k baseline" \
     linkerd-header-repro-12k linkerd-header-repro-12k 12000 no 200
   run_http_variation "22k repro" \
-    linkerd-header-repro-22k linkerd-header-repro-22k 22000 no 502
+    linkerd-header-repro-22k linkerd-header-repro-22k 22000 no 200
   run_http_variation "22k opaque" \
     linkerd-header-repro-opaque linkerd-header-repro-opaque 22000 yes 200
 
@@ -442,10 +460,10 @@ main() {
     8000 no Unauthenticated 8000 Unauthenticated 8000
   run_grpc_variation "22k repro" \
     linkerd-grpc-repro-22k linkerd-grpc-repro-22k \
-    22000 no Internal 0 Internal 0
+    22000 no Unauthenticated 22000 Unauthenticated 22000
   run_grpc_variation "22k opaque" \
     linkerd-grpc-repro-opaque linkerd-grpc-repro-opaque \
-    22000 yes Internal 0 Unauthenticated 22000
+    22000 yes Unauthenticated 22000 Unauthenticated 22000
 
   print_report
   (( failures == 0 ))
