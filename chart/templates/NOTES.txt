@@ -1,0 +1,24 @@
+Linkerd max response header reproduction installed.
+
+Server returns X-Large-Response-Header with {{ .Values.server.largeHeaderBytes }} bytes on /large.
+
+Watch clients:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "linkerd-max-header-repro.fullname" . }}-meshed-client -c curl -f
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "linkerd-max-header-repro.fullname" . }}-unmeshed-client -c curl -f
+
+Expected with affected Linkerd proxy versions:
+
+  * unmeshed-client gets HTTP 200 from /large
+  * meshed-client gets HTTP 502 with l5d-proxy-error or similar HTTP/2 reset
+  * meshed-client still gets HTTP 200 from /small
+
+Try different header sizes:
+
+  helm upgrade --install {{ .Release.Name }} . \
+    -n {{ .Release.Namespace }} \
+    --set server.largeHeaderBytes=12000
+
+  helm upgrade --install {{ .Release.Name }} . \
+    -n {{ .Release.Namespace }} \
+    --set server.largeHeaderBytes=22000

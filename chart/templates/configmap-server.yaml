@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "linkerd-max-header-repro.fullname" . }}-server
+  labels:
+    {{- include "linkerd-max-header-repro.labels" . | nindent 4 }}
+data:
+  server.py: |
+    import os
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    HEADER_NAME = "X-Large-Response-Header"
+    HEADER_BYTES = int(os.environ.get("LARGE_HEADER_BYTES", "22000"))
+    HEADER_VALUE = "a" * HEADER_BYTES
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, fmt, *args):
+            print("%s - %s" % (self.address_string(), fmt % args), flush=True)
+
+        def do_GET(self):
+            if self.path == "/healthz":
+                body = b"ok\n"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if self.path == "/small":
+                value = "a" * 100
+            else:
+                value = HEADER_VALUE
+
+            body = (
+                f"path={self.path}\n"
+                f"header={HEADER_NAME}\n"
+                f"configured_header_value_bytes={len(value)}\n"
+            ).encode()
+
+            self.send_response(200)
+            self.send_header(HEADER_NAME, value)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    if __name__ == "__main__":
+        port = int(os.environ.get("PORT", "8080"))
+        print(f"serving on :{port}; {HEADER_NAME} bytes={HEADER_BYTES}", flush=True)
+        ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

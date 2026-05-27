@@ -1,0 +1,38 @@
+nameOverride: ""
+fullnameOverride: ""
+
+server:
+  image:
+    repository: python
+    tag: "3.12-alpine"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  port: 8080
+  largeHeaderBytes: 22000
+  podAnnotations:
+    linkerd.io/inject: enabled
+  resources: {}
+
+meshedClient:
+  enabled: true
+  image:
+    repository: curlimages/curl
+    tag: "8.8.0"
+    pullPolicy: IfNotPresent
+  intervalSeconds: 10
+  timeoutSeconds: 5
+  podAnnotations:
+    linkerd.io/inject: enabled
+  resources: {}
+
+unmeshedClient:
+  enabled: true
+  image:
+    repository: curlimages/curl
+    tag: "8.8.0"
+    pullPolicy: IfNotPresent
+  intervalSeconds: 10
+  timeoutSeconds: 5
+  podAnnotations:
+    linkerd.io/inject: disabled
+  resources: {}

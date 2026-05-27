@@ -1,0 +1,49 @@
+{{- if .Values.meshedClient.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "linkerd-max-header-repro.fullname" . }}-meshed-client
+  labels:
+    {{- include "linkerd-max-header-repro.labels" . | nindent 4 }}
+    app.kubernetes.io/component: meshed-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "linkerd-max-header-repro.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: meshed-client
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.meshedClient.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "linkerd-max-header-repro.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: meshed-client
+    spec:
+      containers:
+        - name: curl
+          image: "{{ .Values.meshedClient.image.repository }}:{{ .Values.meshedClient.image.tag }}"
+          imagePullPolicy: {{ .Values.meshedClient.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              target="http://{{ include "linkerd-max-header-repro.fullname" . }}-server:{{ .Values.server.port }}/large"
+              small="http://{{ include "linkerd-max-header-repro.fullname" . }}-server:{{ .Values.server.port }}/small"
+              while true; do
+                echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) meshed client: small header control ==="
+                curl -sv --max-time {{ .Values.meshedClient.timeoutSeconds }} "$small" -o /tmp/small-body -w '\nhttp_code=%{http_code}\n' || true
+                cat /tmp/small-body 2>/dev/null || true
+                echo
+                echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) meshed client: large response header repro ==="
+                curl -sv --max-time {{ .Values.meshedClient.timeoutSeconds }} "$target" -o /tmp/large-body -w '\nhttp_code=%{http_code}\n' || true
+                cat /tmp/large-body 2>/dev/null || true
+                echo
+                sleep {{ .Values.meshedClient.intervalSeconds }}
+              done
+          resources:
+            {{- toYaml .Values.meshedClient.resources | nindent 12 }}
+{{- end }}

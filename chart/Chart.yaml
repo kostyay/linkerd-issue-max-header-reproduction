@@ -1,0 +1,6 @@
+apiVersion: v2
+name: linkerd-header-repro
+description: Minimal repro for Linkerd HTTP/2 client-side response header limit
+version: 0.1.0
+appVersion: "0.1.0"
+type: application

@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "linkerd-max-header-repro.fullname" . }}-server
+  labels:
+    {{- include "linkerd-max-header-repro.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicas }}
+  selector:
+    matchLabels:
+      {{- include "linkerd-max-header-repro.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.server.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "linkerd-max-header-repro.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+    spec:
+      containers:
+        - name: server
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          command:
+            - python
+            - /app/server.py
+          env:
+            - name: PORT
+              value: {{ .Values.server.port | quote }}
+            - name: LARGE_HEADER_BYTES
+              value: {{ .Values.server.largeHeaderBytes | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.port }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            - name: app
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: app
+          configMap:
+            name: {{ include "linkerd-max-header-repro.fullname" . }}-server
